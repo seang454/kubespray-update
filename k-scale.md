@@ -7,6 +7,14 @@
 ### What It Is
 `scale.yml` is designed **only** for adding brand new, unconfigured nodes to an already running cluster. It does NOT reconfigure or update existing nodes.
 
+Brand new node = NEW VM, different IP, fresh OS
+        │
+        ├── Fresh VM — just provisioned
+        ├── Never had Kubernetes installed
+        ├── Never joined this cluster before
+        ├── No kubelet, no containerd, no kubeadm
+        └── Clean OS only (Ubuntu, CentOS, etc.)
+
 ### How It Works Internally
 
 ```
@@ -99,12 +107,13 @@ ansible-playbook -i inventory/sample/inventory.ini \
 
 If you changed something in `inventory.ini` for an **existing** node (like uncommenting `ip=`), use:
 
+Exaple 
 ```bash
 ansible-playbook -i inventory/sample/inventory.ini \
   cluster.yml \
   -b -v \
   --private-key=~/.ssh/id_rsa \
-  --limit=worker01,worker02,worker03
+  --limit=master01,worker02,worker03
 ```
 
 This re-applies ALL settings to existing nodes without touching the rest of the cluster.
