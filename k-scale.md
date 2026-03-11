@@ -80,6 +80,124 @@ ansible-playbook -i inventory/sample/inventory.ini \
 master-seang  ansible_host=34.126.125.84  ip=10.148.0.7  etcd_member_name=etcd1
 new-master01  ansible_host=NEW_PUBLIC_IP  ip=NEW_PRIVATE_IP  etcd_member_name=etcd2
 new-master02  ansible_host=NEW_PUBLIC_IP  ip=NEW_PRIVATE_IP  etcd_member_name=etcd3
+```
+
+###  Copy kubeadm-config from master-seang(master node that already runing on cluster) First
+- When you run scale.yml with --limit=master01,master02, Kubespray skips master-seang entirely, so it never gets a chance to copy files FROM master-seang TO the new masters. so it can not copy everything from master-seang to master01,master02
+
+### so what we have to do :
+-  Upload Certs Manually From master-seang First to new master (master01,master02)
+```bash
+# Run this on master-seang BEFORE running scale.yml
+sudo kubeadm init phase upload-certs --upload-certs \
+  --config /etc/kubernetes/kubeadm-config.yaml
+```
+- Then Set The Key in group_vars
+```bash
+kubeadm_certificate_key: "abc123def456...."  # ← paste key here
+```
+- then run this scale that not --limit or --limit with running master(master-seang)
+```bash
+ansible-playbook -i inventory/sample/inventory.ini \
+  scale.yml \
+  --become \
+  --become-user=root \
+  --private-key=~/.ssh/id_rsa \
+  -v
+or 
+
+ansible-playbook -i inventory/sample/inventory.ini \
+  scale.yml \
+  -b -v \
+  --private-key=~/.ssh/id_rsa \
+  --limit=master-seang,new-master01,new-master02
+
+```
+
+```bash
+scale.yml normal flow (NO --limit):
+
+master-seang                    master01/master02
+┌─────────────────┐            ┌─────────────────┐
+│ 1. Run on       │            │                 │
+│    master-seang │──copies───▶│ 2. Gets files   │
+│                 │   files    │    automatically│
+│ admin.conf ✅   │            │ admin.conf ✅   │
+│ kubeadm-cfg ✅  │            │ kubeadm-cfg ✅  │
+└─────────────────┘            └─────────────────┘
+
+scale.yml WITH --limit=master01,master02:
+
+master-seang                    master01/master02
+┌─────────────────┐            ┌─────────────────┐
+│ ⛔ SKIPPED      │            │                 │
+│ --limit skips   │  ✗ no     │ ❌ Never gets   │
+│ this node       │   copy    │    files        │
+│                 │            │ admin.conf ❌   │
+│ admin.conf ✅   │            │ kubeadm-cfg ❌  │
+└─────────────────┘            └─────────────────┘
+
+```
+- kubeadm-config.yaml doesn't exist on master01/master02 — because these are NEW nodes that haven't been initialized yet. The scale playbook is trying to upload certs but the config file only exists on master-seang.
+
+so this the flow that scale --limit node
+- verify
+```bash
+sudo cat /etc/kubernetes/kubeadm-config.yaml
+```
+Copy it to master01 and master02:
+```bash
+# Copy to master01
+scp -i ~/.ssh/id_rsa \
+  /etc/kubernetes/kubeadm-config.yaml \
+  window@10.140.0.18:/tmp/kubeadm-config.yaml
+
+ssh -i ~/.ssh/id_rsa window@10.140.0.18 \
+  "sudo mv /tmp/kubeadm-config.yaml /etc/kubernetes/kubeadm-config.yaml"
+
+# Copy to master02
+scp -i ~/.ssh/id_rsa \
+  /etc/kubernetes/kubeadm-config.yaml \
+  window@10.140.0.19:/tmp/kubeadm-config.yaml
+
+ssh -i ~/.ssh/id_rsa window@10.140.0.19 \
+  "sudo mv /tmp/kubeadm-config.yaml /etc/kubernetes/kubeadm-config.yaml"
+```
+- verificate
+```bash
+ssh -i ~/.ssh/id_rsa window@10.140.0.18 \
+  "sudo cat /etc/kubernetes/kubeadm-config.yaml"
+ssh -i ~/.ssh/id_rsa window@10.140.0.19 \
+  "sudo cat /etc/kubernetes/kubeadm-config.yaml"
+```
+```bash
+# Step 1 - Copy to home dir with sudo
+sudo cp /etc/kubernetes/admin.conf ~/admin.conf
+sudo chown window:window ~/admin.conf
+
+# Step 2 - SCP to master01
+scp -i ~/.ssh/id_rsa ~/admin.conf window@34.80.157.115:/tmp/admin.conf
+
+# Step 3 - SCP to master02
+scp -i ~/.ssh/id_rsa ~/admin.conf window@35.229.164.126:/tmp/admin.conf
+
+# Step 4 - Move to correct location on master01
+ssh -i ~/.ssh/id_rsa window@34.80.157.115 \
+  "sudo mkdir -p /etc/kubernetes && sudo mv /tmp/admin.conf /etc/kubernetes/admin.conf"
+
+# Step 5 - Move to correct location on master02
+ssh -i ~/.ssh/id_rsa window@35.229.164.126 \
+  "sudo mkdir -p /etc/kubernetes && sudo mv /tmp/admin.conf /etc/kubernetes/admin.conf"
+
+# Step 6 - Cleanup the copy above
+rm ~/admin.conf
+
+ssh -i ~/.ssh/id_rsa window@35.229.164.126 \
+  "sudo cat /etc/kubernetes/admin.conf"
+ssh -i ~/.ssh/id_rsa window@34.80.157.115\
+  "sudo cat /etc/kubernetes/admin.conf"  
+
+```
 
 # Step 2 — Run scale.yml targeting new masters only
 ansible-playbook -i inventory/sample/inventory.ini \
@@ -90,6 +208,9 @@ ansible-playbook -i inventory/sample/inventory.ini \
 ```
 
 ### What `scale.yml` Will NOT Do
+
+
+```
 
 ```
 ❌ Will not update ip= on existing nodes

@@ -2,6 +2,8 @@
 ## Directory where the binaries will be installed
 bin_dir: /usr/local/bin
 
+kubeadm_certificate_key: "bbcec4973a4e7fe17d985a7476bfbc400f07b97273dd86fac8fcba0ee757d1d2"  # ← paste key here
+
 ## The access_ip variable is used to define how other nodes should access
 ## the node.  This is used in flannel to allow other flannel nodes to see
 ## this node for example.  The access_ip is really useful AWS and Google
